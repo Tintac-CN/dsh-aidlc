@@ -1,0 +1,86 @@
+# dsh-aidlc bundle patch — layered on top of the profile's other bundle layers.
+#
+# Two rows:
+#
+#   1. `aidlc` — the AIDLC host plugin. Owns the guards, gates, decision layer,
+#      commands, tools, AND the two skills.
+#
+#      Why the skills are not a `dsh-skill-filesystem` row with
+#      `customSkillDirs`: those entries are `path.resolve`-ed against the DSH
+#      process CWD, not against this package, so a relative path here would
+#      silently resolve somewhere unrelated to the plugin (and a patch override
+#      replaces a row's whole `config` rather than merging into it).
+#      `lib/skills.js` instead registers a provider on `ctx.skills` anchored
+#      with `new URL('../skills/', import.meta.url)`, which is CWD-independent
+#      and needs no user configuration.
+#
+#   2. `aidlc-reviewer` — a SECOND delegation tool, `subagent_reviewer`, whose
+#      children cannot write.
+#
+#      The ported AI-DLC protocol has four read-only reviewer roles
+#      (reviewer-pm / reviewer-architect / reviewer-qa / reviewer-dev). In the
+#      ZCode original they were read-only *mechanically*: those subagents simply
+#      had no Edit/Write tool. DSH subagents inherit their parent's composition
+#      and cannot be given a different preset (the child-composition funnel
+#      takes the parent context as its only source), so a naive port would
+#      downgrade that guarantee to prompt text.
+#
+#      It does not have to be downgraded. A subagent start request carries a
+#      `toolFilter`, which in-process providers apply as a scoped
+#      `tools.restrict()` in the child's creation window — the named tools
+#      *vanish from the child's prompt AND refuse to execute*, enforced by the
+#      tool registry rather than by instructions. The filter is persisted in the
+#      durable subagent descriptor, so the guarantee survives a cold resume.
+#
+#      `allow` is used rather than `deny` on purpose: a deny-list is fail-open,
+#      so any write-capable tool added later would leak into reviewers, while an
+#      allow-list is fail-closed. The names below were verified against the
+#      shipped tool packages (read/read_image from dsh-tool-fs; glob/grep from
+#      dsh-tool-fs-search; skill from dsh-tool-skill; todo_write from
+#      dsh-tool-todo). Deliberately absent: write, edit, pwsh, bash (write
+#      paths), and subagent/subagent_fork/workflow (so a reviewer cannot
+#      delegate around its own restriction).
+#
+#      LIMIT, stated honestly: this is tool-read-only, not capability-isolated.
+#      A reviewer still shares the parent's model route, session store and
+#      sandbox. And because `tools.restrict()` rejects an unknown name, a
+#      deployment that lacks one of the listed tools will refuse to spawn a
+#      reviewer with an error naming the valid set — adjust the list below. That
+#      failure is loud and safe; the alternative (a deny-list) would fail
+#      silently and unsafely.
+
+- insert:
+    - id: aidlc
+      name: dsh-aidlc
+
+    - id: aidlc-reviewer
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent_reviewer
+        maxDepth: 1
+        persona: |
+          You are a READ-ONLY reviewer in an AI-DLC review gate.
+
+          You have no write, edit, or shell tools, and you cannot obtain them:
+          this is enforced by the tool registry, not by these instructions. Do
+          not attempt to modify any file, and do not claim in your report that
+          you did.
+
+          Your job is adversarial review, not approval. Read the named artifacts
+          and report concrete findings with evidence: quote the file and section,
+          never a vague assessment. Rank each finding BLOCKER / MAJOR / MINOR.
+
+          End your final message with exactly one line:
+            REVIEWER-<ROLE>-DONE <B>/<M>/<m>
+          where the three numbers are your blocker, major and minor counts. If
+          you could not complete the review, end with:
+            REVIEWER-<ROLE>-FAIL <reason>
+        toolFilter:
+          allow:
+            - read
+            - read_image
+            - glob
+            - grep
+            - skill
+            - todo_write

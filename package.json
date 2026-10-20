@@ -1,0 +1,60 @@
+{
+  "name": "dsh-aidlc",
+  "version": "0.1.0",
+  "description": "AI-DLC (AI-Driven Development Life Cycle) as a native DeepSeek Harness plugin: three phases, two human gates, role subagents, artifact-chain audit and deterministic guards — plus a Jev-style decision-model layer that substitutes for human decisions on timeout or for trivial/simple decisions.",
+  "description_i18n": {
+    "zh-CN": "把 AWS AI-DLC 方法论以 DSH 原生插件落地：三阶段双门控 + 角色子代理 + 工件链审计 + 过程守卫，并引入 Jev 类决策模型层——人类超时或简单决策时由决策模型代裁。"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "aidlc",
+    "ai-dlc",
+    "decision-model",
+    "jev",
+    "systemone",
+    "system-one",
+    "human-in-the-loop",
+    "workflow",
+    "gates"
+  ],
+  "license": "MIT",
+  "author": "Tintac-CN",
+  "type": "module",
+  "main": "lib/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "lib",
+    "skills",
+    "presets",
+    "docs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test --test-timeout=60000 \"test/*.test.js\"",
+    "check": "node scripts/check-plugin.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-llm": { "optional": true },
+    "@deepseek-ai/dsh-tools": { "optional": true }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2"
+  }
+}

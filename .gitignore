@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Local scratch
+*.log
+_probe.mjs
+_tmp/
+.tmp/
+
+# AI-DLC runtime artifacts that live in *consumer* repositories, not here.
+# (This repo ships the plugin; it is not itself an intent workspace.)
+docs/aidlc/*/audit.log
+docs/aidlc/decision-audit.jsonl
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
