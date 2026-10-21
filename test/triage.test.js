@@ -378,7 +378,17 @@ test('the answerer: triage claims above the bar, escalation leaves the question 
   try {
     process.chdir(root)
     answer = mod.apply
-    mod.apply(ctx, { decision: { model: { protocol: 'chat', baseURL: 'http://127.0.0.1:1/v1', apiKey: 'k', timeoutMs: 5000 } } })
+    // `interceptAllSessions` is required here: the answerer now only touches a
+    // session that is in AIDLC mode (or an operator who opted into answering
+    // questions everywhere). Without it the listener delegates immediately,
+    // which is asserted separately below — that session scoping is the fix for
+    // "questions the user needed to answer were answered by a model instead".
+    mod.apply(ctx, {
+      decision: {
+        interceptAllSessions: true,
+        model: { protocol: 'chat', baseURL: 'http://127.0.0.1:1/v1', apiKey: 'k', timeoutMs: 5000 },
+      },
+    })
     const answerer = listeners.get('user-questions/request')
     assert.equal(typeof answerer, 'function', 'the plugin registers the question answerer')
     const mkReq = (overrides = {}) => ({

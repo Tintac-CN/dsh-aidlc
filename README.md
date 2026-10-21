@@ -180,6 +180,110 @@ decision:
 See [`docs/decision-model.md`](docs/decision-model.md) for the taxonomy and the reasoning behind the
 defaults, and [`docs/design.md`](docs/design.md) for the architecture.
 
+### Language
+
+Every human-readable string the plugin emits — guard deny reasons, command and tool results, and log
+lines — follows one key:
+
+```yaml
+locale: en            # en (default) | zh-CN
+```
+
+`en` is the default, so an existing config behaves exactly as before.
+
+```yaml
+locale: zh-CN         # guard denials, command output and logs in Chinese
+```
+
+**What `locale` does not do.** Receipts (`GATE-APPROVED gate1 2026-10-20`, `AUTO-APPROVED …`), audit
+field names, decision class and mode ids, and paths are machine-readable and stay byte-identical in
+every locale — a translated receipt would stop parsing and break the audit chain. The two bundled
+skills (`skills/aidlc`, `skills/party-review`) are deliberately English in both locales, because their
+prose is model-facing protocol rather than UI text. The preset's own display name and description are
+set by the harness's preset roster and are never localized by this plugin either.
+
+### Per-role models (`config.roles`)
+
+Pin a model to each AI-DLC role. The point is cost against risk: `qa` scaffolding can run on a cheap
+fast model, while `verifier` and `reviewer-architect` are where a weak model is most expensive — a bad
+review sentence costs a human gate or ships a defect.
+
+```yaml
+roles:
+  pm:          { provider: deepseek, model: deepseek-v4-flash }   # cheap: PRD scaffolding
+  qa:          { provider: deepseek, model: deepseek-v4-flash }   # cheap: test-point mapping
+  dev:         { provider: deepseek, model: deepseek-v4-flash }
+  architect:   { provider: '' , model: '' }                       # inherit the session route
+  verifier:    { provider: deepseek, model: deepseek-v4 }         # strong: final check
+  reviewer-architect: { provider: deepseek, model: deepseek-v4 }  # strong: adversarial review
+```
+
+Both fields must be set together. **An empty pair — the default for every role — means "inherit the
+session's route"**, which is exactly the behaviour before this key existed. A half-filled pin
+(`provider` without `model`, or the reverse) is *not* a pin: the harness selects a child route as a
+provider+model pair, so it inherits, and the plugin logs a warning and reports it in `/aidlc-doctor`
+rather than letting you believe a model was chosen.
+
+The pin is applied by the **`aidlc_dispatch_role` tool**, which is how the orchestrator dispatches a
+role: it resolves `config.roles.<role>` and starts the child on that route. The ordinary delegation
+tool ignores `config.roles` entirely — a dispatch through it always runs on the session's model. The
+skill prefers `aidlc_dispatch_role` and states the fallback: if the tool is not in the catalog, or if
+it refuses (unregistered provider, unresolvable model, a harness whose `spawn` provider cannot take a
+child route), **per-role pinning is unavailable and nothing is applied** — the tool never falls back
+to the session route behind your back.
+
+```bash
+/aidlc-doctor     # every role's resolved route, and whether a pin can be applied here at all
+```
+
+### Pointing the decision model at Jev (or anywhere else)
+
+`decision.model` is the whole configuration. Four deployments, each with an exact snippet, are
+documented in [`docs/decision-model.md` §15](docs/decision-model.md); the short version:
+
+```yaml
+decision:
+  model:
+    protocol: systemone                              # System One / Jev
+    baseURL: https://api.siliconflow.cn/v1           # empty = this default
+    model: Kev-4b                                    # empty = this default
+    apiKeyEnv: SILICONFLOW_API_KEY
+```
+
+```yaml
+decision:
+  model:
+    protocol: systemone
+    baseURL: http://127.0.0.1:8080/v1                # self-hosted Laya / llama.cpp: loopback needs no key
+    model: qwen2.5-7b-instruct
+    timeoutMs: 60000                                 # local models are slow; the 24s default may be short
+```
+
+```yaml
+decision:
+  model:
+    protocol: chat                                   # any OpenAI-compatible endpoint
+    baseURL: https://api.example.com/v1              # required: chat has no default
+    model: gpt-4o-mini                               # required
+    apiKeyEnv: DECISION_API_KEY
+```
+
+```yaml
+decision:
+  model:
+    protocol: session                                # the default: the harness's own model
+```
+
+Under `session`, everything else in `decision.model` is ignored — the running session's route is used,
+and `/aidlc-doctor` says so instead of echoing a `model:` that has no effect. `/aidlc-doctor` also
+prints the resolved endpoint (base URL, model, and **which field supplies the credential, never the
+credential**), and `--probe` spends one real request to prove it answers.
+
+**Per-class model overrides (`decision.models`): not implemented.** The transport is resolved once for
+every decision class, so a class-specific route would need a second resolution path through the
+consult seam. If you have `security.exception`-class decisions you want on a stronger model, use one
+strong endpoint, or keep `gate.approval: advisory` so a human answers the classes that matter.
+
 ## What the guards actually enforce
 
 Nine mechanical rules, carried over from the original and covered by the regression suite:
@@ -245,15 +349,18 @@ discovery with no error at all.
 - **This is a process constraint, not a security boundary.** The guards stop slips and enforce
   ritual. A shell redirect or a script walks straight past them. Put real boundaries in CI, branch
   protection and sandboxing.
-- **Read-only review is enforced, but it is tool-scoped, not capability-isolated.** The four
-  reviewer roles run through a dedicated delegation tool (`subagent_reviewer`) whose children are
-  restricted by the tool registry: `write`, `edit`, `pwsh`, `bash` and the delegation tools are not
-  merely discouraged, they are absent from the reviewer's prompt *and refuse to execute*. That
-  restores the mechanical guarantee the ZCode original had (it simply gave reviewers no Edit/Write
-  tool). What it does **not** give you is isolation: a reviewer still shares the parent's model
-  route, session store and sandbox. And because the allow-list is enforced strictly, a deployment
-  missing one of the listed tools refuses to spawn a reviewer rather than silently weakening it —
-  the error names the valid set, so adjust `toolfilter` in `cordis.patch.yml` if you hit it.
+- **Reviewer read-only is a convention on this harness, not a mechanism.** Earlier builds enforced it
+  with a `toolFilter` allow-list on the `subagent_reviewer` delegation row, which was genuinely
+  mechanical. Harness **v0.2.1 removed `toolFilter` and `persona` from `dsh-tool-subagent` and now
+  throws when either is present**, so that row cannot carry a filter. Reviewer write tools are
+  therefore available to the child; they go unused because the dispatch forbids them. A preset cannot
+  restore it either — `dsh-tool-fs` still registers `read`, `write` and `edit` from one package, so no
+  row selection yields "read without write". The mechanism that would restore it is a plugin-side
+  `tools.restrict()` in the child's creation window (`restrict` still exists; only the declarative
+  field is gone). Until then the orchestrator compensates by verifying the diff is unchanged after
+  review, and the skills say so rather than claiming a guarantee the platform does not provide.
+  What is still true: this was never capability isolation — a reviewer shares the parent's model
+  route, session store and sandbox.
 - **A decision model is consistent, not deterministic.** Independent measurement found identical
   labels on only ~98% of repeat runs. Re-asking is resampling, never verification. That is why
   substitution is opt-in, reversible, and never available at the gates.

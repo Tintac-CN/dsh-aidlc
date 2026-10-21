@@ -204,7 +204,13 @@ test('readLedger distinguishes absent from present, appendLedger enforces the pr
   assert.equal(readLedger(dir), 'A\nB\n')
   const rejected = appendLedger(dir, 'A\nC\n')
   assert.equal(rejected.ok, false)
-  assert.match(rejected.message, /只追加/)
+  assert.match(rejected.message, /append-only/)
+  // The same refusal in the other locale: prose switches, the structure and the
+  // machine literals (decisions.md, appendLedger) do not.
+  const rejectedZh = appendLedger(dir, 'A\nC\n', {}, { locale: 'zh-CN' })
+  assert.equal(rejectedZh.ok, false)
+  assert.match(rejectedZh.message, /只追加/)
+  assert.match(rejectedZh.message, /decisions\.md/)
   assert.equal(readFileSync(join(dir, 'decisions.md'), 'utf8'), 'A\nB\n', 'a rejected append must not touch the file')
 
   const appended = appendLedger(dir, 'A\nB\nC\n')
@@ -237,7 +243,7 @@ test('SAFETY: a state.json claiming approved is denied when only an AUTO receipt
   const next = state({ phase: 'construction', gates: { gate1: 'approved', gate2: 'pending' }, updatedAt: '2026-10-20T01:00:00.000Z' })
   const decision = guardWrite({ filePath: 'docs/aidlc/demo/state.json', content: json(next), root })
   assert.equal(decision.kind, 'deny', 'the machine must not be able to forge a human approval')
-  assert.match(decision.reason, /缺少有效的人类审批回执/)
+  assert.match(decision.reason, /no live human approval receipt/)
   assert.equal(existsSync(join(dir, 'state.json')), true)
 })
 
@@ -293,5 +299,5 @@ test('an unreadable decisions.md fails closed instead of looking empty (D3)', (t
   const next = state({ phase: 'construction', gates: { gate1: 'approved', gate2: 'pending' }, updatedAt: '2026-10-20T01:00:00.000Z' })
   const decision = guardWrite({ filePath: 'docs/aidlc/demo/state.json', content: json(next), root })
   assert.equal(decision.kind, 'deny')
-  assert.match(decision.reason, /无法读取/, 'the reason must name the read failure, not a missing receipt')
+  assert.match(decision.reason, /cannot be read/, 'the reason must name the read failure, not a missing receipt')
 })

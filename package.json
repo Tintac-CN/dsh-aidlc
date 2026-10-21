@@ -38,7 +38,8 @@
   ],
   "scripts": {
     "test": "node --test --test-timeout=60000 \"test/*.test.js\"",
-    "check": "node scripts/check-plugin.mjs"
+    "check": "node scripts/check-plugin.mjs && node scripts/sync-preset.mjs --check",
+    "sync-preset": "node scripts/sync-preset.mjs"
   },
   "dsh": {
     "bundle": {

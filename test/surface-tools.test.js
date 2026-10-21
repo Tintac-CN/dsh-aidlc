@@ -235,8 +235,8 @@ test('registerTools refuses to half-register when the harness or registry is mis
     assert.match(result.error, /dsh-tools is not installed/, 'only the guarded harness import may be the reason')
     return
   }
-  assert.deepEqual(result.tools, ['aidlc_status', 'aidlc_classify', 'aidlc_decide', 'aidlc_record_decision'])
-  assert.equal(tools.length, 4)
+  assert.deepEqual(result.tools, ['aidlc_status', 'aidlc_classify', 'aidlc_decide', 'aidlc_record_decision', 'aidlc_dispatch_role'])
+  assert.equal(tools.length, 5)
 })
 
 test('aidlc_record_decision cannot write a receipt of either kind', async (t) => {

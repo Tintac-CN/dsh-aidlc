@@ -23,7 +23,7 @@ test('parseTestOutput reads the native F2 grammar and cross-checks the ALL tail'
   assert.equal(parsed.format, 'f2')
   const mismatch = parseTestOutput(['ok  a', 'ALL 5'].join('\n'))
   assert.equal(mismatch.unavailable, true)
-  assert.match(mismatch.why, /交叉核对不一致/)
+  assert.match(mismatch.why, /disagrees with pass\+fail/)
 })
 
 test('parseTestOutput reads the Node spec and TAP summaries', () => {
@@ -51,10 +51,10 @@ test('buildBaseline records unavailable (never a zero) for failed runs', () => {
   const failed = buildBaseline({ command: 'npm test', output: F2, exitCode: 1 })
   assert.equal(failed.unavailable, true)
   assert.equal(failed.fail, null)
-  assert.match(failed.why, /非零退出/)
+  assert.match(failed.why, /exited non-zero/)
   assert.equal(buildBaseline({ command: 'x', output: F2, timedOut: true }).unavailable, true)
-  assert.match(buildBaseline({ command: 'x', timedOut: true }).why, /超时/)
-  assert.match(buildBaseline({ command: 'x', error: 'ENOENT' }).why, /执行失败/)
+  assert.match(buildBaseline({ command: 'x', timedOut: true }).why, /timed out/)
+  assert.match(buildBaseline({ command: 'x', error: 'ENOENT' }).why, /failed to run/)
   const unparseable = buildBaseline({ command: 'x', output: 'no numbers here', previousSuites: ['a/b.test.js'] })
   assert.equal(unparseable.unavailable, true)
   assert.deepEqual(unparseable.suites, ['a/b.test.js'], 'the previous suite list is preserved so scope is not silently lost')
@@ -77,10 +77,10 @@ test('compareBaseline: no baseline and unavailable baselines never read as pass'
   const none = compareBaseline(null, { output: F2 })
   assert.equal(none.verdict, 'no-baseline')
   assert.equal(none.newFailures.length, 0)
-  assert.match(none.note, /无基线对照/)
+  assert.match(none.note, /No baseline to compare against/)
   const unavailable = compareBaseline({ unavailable: true, why: '超时' }, { output: F2 })
   assert.equal(unavailable.verdict, 'unavailable')
-  assert.match(unavailable.note, /不得静默当作通过/)
+  assert.match(unavailable.note, /never read that as a pass/)
   const badOutput = compareBaseline({ total: 3, pass: 3, fail: 0, format: 'f2' }, { output: 'nothing parseable' })
   assert.equal(badOutput.verdict, 'unavailable')
 })
@@ -100,8 +100,8 @@ test('compareBaseline degrades to counts with an explicit disclosure', () => {
   const regressed = compareBaseline(baseline, { output: ['ok  a', 'FAIL b', 'FAIL c', 'ALL 3'].join('\n') })
   assert.equal(regressed.verdict, 'regression')
   assert.equal(regressed.newFailures.length > 0, true)
-  assert.match(regressed.note, /计数口径/)
-  assert.match(regressed.note, /披露/)
+  assert.match(regressed.note, /count-basis comparison/)
+  assert.match(regressed.note, /disclosure/)
 })
 
 test('compareBaseline never drops a failure it cannot attribute', () => {
@@ -109,7 +109,7 @@ test('compareBaseline never drops a failure it cannot attribute', () => {
   const current = ['ok  src/a.test.js case', 'FAIL some anonymous case', 'ALL 2'].join('\n')
   const result = compareBaseline(baseline, { output: current })
   assert.equal(result.verdict, 'regression', 'an unattributable failure is compared, not excluded')
-  assert.match(result.note, /无法归属/)
+  assert.match(result.note, /cannot be attributed/)
 })
 
 test('compareBaseline does not compare a suite added after the baseline (case-name basis)', () => {
@@ -124,7 +124,7 @@ test('compareBaseline does not compare a suite added after the baseline (case-na
   ].join('\n')
   const result = compareBaseline(baseline, { output: current })
   assert.equal(result.verdict, 'pass', 'the new suite is out of scope')
-  assert.match(result.note, /未参与比对/)
+  assert.match(result.note, /were not compared/)
   // and the fail-closed count fallback keeps an unattributable failure
   const countOnly = compareBaseline({ total: 1, pass: 1, fail: 0, format: 'f2', suites: ['src/a.test.js'] }, { output: current })
   assert.equal(countOnly.verdict, 'regression', 'count-only comparison cannot exclude, so it over-counts on purpose')
@@ -134,15 +134,15 @@ test('compareBaseline across grammars degrades to counts and discloses it', () =
   const baseline = parseTestOutput(F2) // format f2, failingTests ['third case']
   const sameCounts = compareBaseline(baseline, { output: NODE_SPEC })
   assert.equal(sameCounts.verdict, 'pass', 'the counts agree: the same one failure')
-  assert.match(sameCounts.note, /计数口径/)
+  assert.match(sameCounts.note, /count-basis comparison/)
   const worse = compareBaseline(baseline, { output: ['ℹ tests 3', 'ℹ pass 1', 'ℹ fail 2', 'ℹ cancelled 0', 'ℹ skipped 0', 'ℹ todo 0', '✖ another case (1ms)'].join('\n') })
   assert.equal(worse.verdict, 'regression')
-  assert.match(worse.note, /计数口径/)
+  assert.match(worse.note, /count-basis comparison/)
   assert.equal(worse.newFailures.length, 1)
 })
 
 test('a corrupted baseline with neither names nor a fail count is unavailable, not pass', () => {
   const result = compareBaseline({ total: null, pass: null, fail: null }, { output: F2 })
   assert.equal(result.verdict, 'unavailable')
-  assert.match(result.note, /不得静默当作通过/)
+  assert.match(result.note, /never read that as a pass/)
 })

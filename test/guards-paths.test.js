@@ -78,7 +78,7 @@ test('guardTestsPostWrite warns on a locked test file, and distinguishes the ove
   const override = guardTestsPostWrite({ filePath: 'src/b.spec.ts', root })
   assert.equal(override.kind, 'warn')
   assert.match(override.message, /TDD-lock override/)
-  assert.match(override.message, /重新上锁/)
+  assert.match(override.message, /aidlc-lock-tests/)
 })
 
 test('guardTestsPostWrite stays silent when it should (near-miss check)', (t) => {

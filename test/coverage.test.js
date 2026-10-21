@@ -34,7 +34,7 @@ test('PRD granularity: sub wins, a bare group cover is dropped, an ungroupable b
   assert.deepEqual([...withCover.P].sort(), ['AC1.1', 'AC1.2'], 'AC1 is a cover for its own group')
   const mixed = sub('## 验收标准\n- AC1.1 a\n- AC2 unrelated group\n')
   assert.equal(mixed.status, 'unparseable')
-  assert.match(mixed.why, /约定混提/)
+  assert.match(mixed.why, /mixes granularity/)
   const flat = sub('## 验收标准\n- AC1 a\n- AC2 b\n')
   assert.equal(flat.mode, 'flat')
   assert.deepEqual([...flat.P].sort(), ['AC1', 'AC2'])
@@ -135,7 +135,7 @@ test('T: cell grammar — placeholders, prose, and escaped pipes', () => {
 test('checkCoverage denies a missing or unreadable artifact', (t) => {
   const root = tmpRoot(t)
   const dir = intent(root, 'demo')
-  assert.match(checkCoverage(dir).reason, /prd\.md、test-strategy\.md/)
+  assert.match(checkCoverage(dir).reason, /prd\.md and test-strategy\.md/)
   write(join(dir, 'prd.md'), prd())
   const onlyPrd = checkCoverage(dir)
   assert.equal(onlyPrd.kind, 'deny')
@@ -157,20 +157,20 @@ test('checkCoverage: full coverage allows plainly, gaps and phantoms deny', (t) 
   write(join(dir, 'test-strategy.md'), testStrategy(['AC1.1']))
   const gap = checkCoverage(dir)
   assert.equal(gap.kind, 'deny')
-  assert.match(gap.reason, /覆盖缺口/)
+  assert.match(gap.reason, /AC coverage gaps/)
   assert.match(gap.reason, /AC1\.2/)
 
   write(join(dir, 'test-strategy.md'), testStrategy(['AC1.1', 'AC1.2', 'AC1.3']))
   const phantom = checkCoverage(dir)
   assert.equal(phantom.kind, 'deny')
-  assert.match(phantom.reason, /幻影编号/)
+  assert.match(phantom.reason, /phantom numbers/)
   assert.match(phantom.reason, /AC1\.3/)
 
   write(join(dir, 'test-strategy.md'), testStrategy(['AC1.1', 'AC1.3']))
   const both = checkCoverage(dir)
   assert.equal(both.kind, 'deny')
-  assert.match(both.reason, /覆盖缺口/)
-  assert.match(both.reason, /幻影编号/)
+  assert.match(both.reason, /AC coverage gaps/)
+  assert.match(both.reason, /phantom numbers/)
 })
 
 test('checkCoverage allows WITH a disclosure on every unparseable path', (t) => {
@@ -180,7 +180,7 @@ test('checkCoverage allows WITH a disclosure on every unparseable path', (t) => 
   write(join(dir, 'test-strategy.md'), testStrategy(['AC1.1']))
   const noSection = checkCoverage(dir)
   assert.equal(noSection.kind, 'allow-with-disclosure')
-  assert.match(noSection.reason, /无法机械校验/)
+  assert.match(noSection.reason, /cannot mechanically check/)
 
   write(join(dir, 'prd.md'), '## 验收标准\n- no numbers at all\n')
   const emptyP = checkCoverage(dir)
@@ -197,7 +197,7 @@ test('checkCoverage allows WITH a disclosure on every unparseable path', (t) => 
   write(join(dir, 'test-strategy.md'), testStrategy(['AC1.1']))
   const mixed = checkCoverage(dir)
   assert.equal(mixed.kind, 'allow-with-disclosure')
-  assert.match(mixed.reason, /约定混提/)
+  assert.match(mixed.reason, /mixes granularity/)
 })
 
 test('checkCoverage accepts an injected reader: absolute first, bare name tolerated', () => {

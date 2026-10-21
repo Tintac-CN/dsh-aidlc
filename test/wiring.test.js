@@ -71,7 +71,7 @@ test('the plugin boots and registers the documented surface', async (t) => {
     'agent/pre-step',
     'user-questions/request',
   ])
-  assert.equal(wired.tools.length, 4, 'aidlc_status / aidlc_classify / aidlc_decide / aidlc_record_decision')
+  assert.equal(wired.tools.length, 5, 'aidlc_status / aidlc_classify / aidlc_decide / aidlc_record_decision / aidlc_dispatch_role')
   // 13 lifecycle commands plus `aidlc-doctor`, the read-only self-check.
   assert.equal(wired.commands.length, 14)
   assert.deepEqual(wired.errors, [], 'booting with a usable config logs no error')
@@ -101,7 +101,7 @@ test('D10 CLOSED: with no session cwd the guards still fire (process.cwd() fallb
     // ...and the intent-aware rules still fire too
     const locked = await wired.call({ name: 'edit', arguments: { file_path: 'src/a.test.js' } }, noCwd)
     assert.equal(locked.kind, 'deny')
-    assert.match(locked.reason, /TDD 锁生效/)
+    assert.match(locked.reason, /TDD lock is in effect/)
     // the fallback is announced once, not silently
     assert.equal(wired.warnings.some((w) => /falling back to the process working directory/.test(w)), true)
   } finally {

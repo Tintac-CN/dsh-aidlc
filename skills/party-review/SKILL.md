@@ -1,11 +1,16 @@
 ---
 name: party-review
-description: "AI cross-review orchestration for AI-DLC gates. Load when a review gate (gate1 or gate2) is reached and the artifacts need adversarial cross-examination from several role perspectives BEFORE the human is asked to approve. Fans out read-only reviewer subagents in parallel through the subagent_reviewer tool (whose children cannot write) and consolidates their findings into reviews/gateN-ai.md."
-whenToUse: "Running Gate#1 or Gate#2 of an AIDLC intent, or any time a gate's artifact set needs the four reviewer perspectives before human approval. Also load it when the human asks why a gate needs cross-review, or how reviewer read-only is enforced."
+description: "AI cross-review orchestration for AI-DLC gates. Load when a review gate (gate1 or gate2) is reached and the artifacts need adversarial cross-examination from several role perspectives BEFORE the human is asked to approve. Fans out reviewer subagents in parallel through the subagent_reviewer tool and consolidates their findings into reviews/gateN-ai.md. NOTE: reviewer read-only is instruction-carried on this harness, not mechanically enforced — see the body."
+whenToUse: "Running Gate#1 or Gate#2 of an AIDLC intent, or any time a gate's artifact set needs the four reviewer perspectives before human approval. Also load it when the human asks why a gate needs cross-review, or what read-only review does and does not guarantee."
 user-invocable: true
 ---
 
 # Party mode cross-review
+
+> **Language.** The plugin's tool, command and guard output follows the `locale` config
+> key (`en` by default, or `zh-CN`), so tool results you read may be in either language.
+> **This skill's prose is deliberately English in both locales**, and machine-readable
+> text (receipts, class ids, paths) is never translated in any locale.
 
 AI cross-review in front of the gate: several role perspectives examine the artifacts **in parallel** and hunt for **hard inconsistencies**; the human then reviews only the semantics. Cross-review **never replaces** the approval decision — it makes that decision cheaper and better informed.
 
@@ -35,18 +40,18 @@ Dispatch the **reviewer roles** in one message, several calls at once:
 
 At **gate2**, add the **`verifier`** (fresh context, plan against the actual diff, including the double check for unplanned files).
 
-**Dispatch the four `reviewer-*` roles through the `subagent_reviewer` tool — never through the ordinary `subagent` tool.** `subagent_reviewer` is a separate delegation tool whose children carry a `toolFilter` allow-list (`read`, `read_image`, `glob`, `grep`, `skill`, `todo_write`), applied by the tool registry as a scoped `tools.restrict()`: **write, edit and shell tools are absent from the reviewer's prompt AND refuse to execute.** Dispatching a reviewer through `subagent` silently loses that and lets it write. The filter is persisted in the durable subagent descriptor, so it survives a cold resume.
+**Dispatch the four `reviewer-*` roles through the `subagent_reviewer` tool rather than the ordinary `subagent` tool.** One correction to earlier revisions of this file: the `toolFilter` allow-list that made reviewers *mechanically* read-only **no longer exists** — the harness removed `toolFilter` (and `persona`) from `dsh-tool-subagent` in v0.2.1 and now throws when either is present. Reviewer write tools are therefore available to the child; they go unused because the dispatch forbids it. Keep dispatching through `subagent_reviewer`, because that row is where a mechanical restriction will attach when it is wired again — but **do not tell a human the guarantee is enforced.** The `aidlc` skill §5.3 has the full account, including why a preset cannot restore it and how the orchestrator compensates (verify the diff is unchanged after review).
 
 Notes on that guarantee, stated as plainly as they deserve:
 
 - `allow` is used rather than `deny` on purpose. A deny-list is fail-open — any write-capable tool added later would leak into reviewers. An allow-list is fail-closed.
 - The filter also withholds the delegation tools, so **a reviewer cannot delegate around its own restriction**.
-- **The limit**: this is *tool-read-only*, **not capability-isolated**. A reviewer still shares the parent's model route, the session store and the sandbox. It cannot write; it is not in a separate security domain.
+- **The limits, stated plainly**: read-only is a convention here, not a mechanism (see above), and it is not capability isolation either — a reviewer shares the parent's model route, the session store and the sandbox. So the orchestrator verifies the diff is unchanged after review: a reviewer that "helpfully" fixed something is a finding, not a convenience.
 - Because `tools.restrict()` rejects an unknown tool name, a deployment missing one of the allow-listed tools **refuses to spawn the reviewer** and names the valid set. That is the loud, safe failure. Never "fix" it by falling back to `subagent`.
 
 **Do not dispatch the producing roles** (`pm`, `architect`, `qa`, `dev`, `tea`) for a review: they are write-capable by design, and a producer reviewing its own artifact is not a cross-review.
 
-Every dispatch still carries the five-part contract from the `aidlc` skill's §5.1 (intent path / read list / output protocol / where the checklist comes from / completion test). A review's "output" is its **report text** — it writes no file. Keep the read-only framing in the dispatch as belt-and-braces even though the registry enforces it: *"Read-only review: report findings, change nothing. Fixing is the producing role's job."*
+Every dispatch still carries the five-part contract from the `aidlc` skill's §5.1 (intent path / read list / output protocol / where the checklist comes from / completion test). A review's "output" is its **report text** — it writes no file. **Because nothing enforces that on this harness, the read-only framing in the dispatch is now load-bearing, not belt-and-braces** — state it explicitly every time: *"Read-only review: report findings, change nothing. You have no write tools by instruction; do not create, edit or delete any file. Fixing is the producing role's job."*
 
 A reviewer's final line is `REVIEWER-<ROLE>-DONE <BLOCKER>/<MAJOR>/<MINOR>`, or `REVIEWER-<ROLE>-FAIL <reason>`. The `subagent_reviewer` persona already instructs the child to emit it, so recognise that line and nothing else. **A missing marker means the review did not complete** — re-dispatch; never read it as a pass.
 

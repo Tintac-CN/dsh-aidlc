@@ -7,6 +7,12 @@ user-invocable: true
 
 # AI-DLC orchestration (main skill)
 
+> **Language.** The plugin's tool, command and guard output follows the `locale` config
+> key (`en` by default, or `zh-CN`) — so a guard denial you read may be in either
+> language. **This skill's prose is deliberately English in both locales**: it is
+> model-facing protocol, not UI text. Machine-readable text (receipts, class ids,
+> paths) is never translated in any locale.
+
 You are the orchestrator of the AI-DLC pipeline. The philosophy in one line: **AI produces at speed, the human keeps the gate.** You own phase transitions, artifact persistence and the gates; role subagents produce the artifacts; the human approves.
 
 The upstream methodology's own guidance is that tooling should *detect when automation races ahead of human validation and deliberately slow down*, and it names **process atrophy** as the failure mode when AI decides everything. That is why this plugin does not silently replace the human at the gates, and why the decision-model layer below is opt-in, recorded, and reversible rather than automatic.
@@ -40,7 +46,7 @@ The **path guard** denies Edit/Write to `.env*`, private keys, `.aws/`, `.netrc`
 ### 0.3 Prompt-level only — say so out loud
 
 - **The role "standing constraints"** (do not invent requirements, least privilege, do not edit tests, and the rest of §5.2) are prompt text. A long context, a hurried user, or adversarial input dilutes them. **Human review at the gate is the only trustworthy backstop.**
-- **Exception worth knowing**: the reviewer roles are *not* in this category. Their read-only property is enforced by the tool registry through the `subagent_reviewer` tool's `toolFilter` — see §5.3. It is the one role constraint in this port that is mechanical, and it only holds if you dispatch through the right tool.
+- **Reviewer read-only is a convention here, not a mechanism.** An earlier revision enforced it through the `subagent_reviewer` tool's `toolFilter`, which the harness **removed in v0.2.1** (the field now throws at apply). Reviewer write tools are therefore *available*; they go unused because the dispatch forbids it. Do not describe this as enforced. What replaces the mechanism is **your verification that the diff is unchanged after review** — see §5.3, which also records why a preset cannot restore it and what would. And even at its best this was never capability isolation: a reviewer still shares the parent's model route, session store and sandbox.
 - **Audit durability** — the decision audit is flushed at teardown. A crash mid-turn can lose the current turn's audit line. Artifact commits are the orchestrator's job, and `/aidlc-resume`'s reconciliation step is what finds what was missed.
 - **One active intent.** "Active" means the newest `updatedAt` among `docs/aidlc/*/state.json`, excluding `done` and `archived`. Parallel intents in one session are out of scope in v0.1.
 - **The decision layer is NOT conservative by default — it is triage-first.** The model is asked first and the human only when it is not confident enough; that is the design, not a fallback. The mechanical protections are the confidence ladder, the authority clamp, the recorded `AUTO` receipt, the veto window **and your mandatory surfacing of every applied verdict**. Never describe the human-entry confirmations (A1/A2/A3) as unconditional — they are triage-able. See §2.5.
@@ -327,22 +333,21 @@ You recognise **only** those two markers: a missing hash means not finished (com
 
 **Reviewers** (`reviewer-pm`, `reviewer-architect`, `reviewer-qa`, `reviewer-dev`) and the **`verifier`** are covered by §5.3 — read it before you dispatch one.
 
-### 5.3 Reviewer dispatch: use `subagent_reviewer`, and why it matters
+### 5.3 Reviewer dispatch: `subagent_reviewer`, and the honest state of "read-only"
 
-The four `reviewer-*` roles **must be dispatched through the `subagent_reviewer` tool, never through the ordinary `subagent` tool.** Dispatching a reviewer through `subagent` silently loses the read-only guarantee — the dispatch will look correct and the reviewer will be able to write.
+**Read this before relying on it.** Reviewer read-only is **instruction-carried on this harness, not mechanically enforced.** An earlier revision of this bundle enforced it with a `toolFilter` allow-list on the delegation tool, and that was genuinely mechanical: the write and shell tools were absent from the child's prompt *and* refused to execute. Harness **v0.2.1 removed `toolFilter` and `persona` from `dsh-tool-subagent` and now throws at apply time when either is present**, so the row that carried the filter cannot mount. The filter is gone; the claim went with it.
 
-`subagent_reviewer` is a second registration of the delegation tool (the bundle's `cordis.patch.yml` inserts it) whose child carries a **`toolFilter` allow-list**: `read`, `read_image`, `glob`, `grep`, `skill`, `todo_write`. In-process providers apply that filter as a scoped `tools.restrict()` inside the child's creation window, so those tools are the only ones that exist for the child: **the write and shell tools are absent from the reviewer's prompt AND refuse to execute**, enforced by the tool registry rather than by an instruction. The filter is persisted in the durable subagent descriptor, so the guarantee survives a cold resume.
-
-- **Deliberately absent**: `write`, `edit`, `pwsh`, `bash` (all write paths), and `subagent`/`subagent_fork`/`workflow` — a reviewer cannot delegate around its own restriction.
-- **`allow` is used rather than `deny` on purpose.** A deny-list is fail-open: any write-capable tool added later would leak into reviewers. An allow-list is fail-closed.
-- **The honest limit: this is tool-read-only, not capability-isolated.** A reviewer still shares the parent's model route, the session store and the sandbox. It cannot write; it is not in a separate security domain.
-- **Fail-loud by design.** `tools.restrict()` rejects an unknown tool name, so a deployment that lacks one of the allow-listed tools **refuses to spawn the reviewer** with an error naming the valid set, rather than silently handing it a weaker or wider set. If that happens, fix the filter — never route the reviewer through `subagent` as a workaround.
+- **What that means in practice:** a reviewer dispatched today *can* write if it decides to. It will not, because the dispatch tells it not to and because review is not a task that wants writes — but nothing in the tool registry stops it. Do not describe this as enforced, and do not tell a human it is.
+- **Why a preset does not restore it either:** `@deepseek-ai/dsh-tool-fs` still registers `read`, `write` and `edit` from one package, so no row selection can produce "read without write" — omitting the package removes reading too, which makes the role useless.
+- **What would restore it:** a plugin-side `tools.restrict()` applied in the child's creation window. `restrict` still exists on the tool service; only the declarative `toolFilter` field was removed. Until that is wired, treat the guarantee as a convention.
+- **So keep the belt-and-braces and increase it, do not relax it.** Dispatch with the role name, and state the constraint in the dispatch text explicitly: *"Read-only review: report findings, change nothing. You have no write tools available to you by instruction; do not attempt to create, edit or delete any file, and fix nothing — that is the producing role's job."* Say it every time; a convention that is never restated decays.
+- **Still worth routing through `subagent_reviewer`** rather than plain `subagent`: the row is where a mechanically read-only implementation will attach, so keeping reviewer dispatch on it means restoring the guarantee later costs nothing at the call sites.
 
 What you still do, every time:
 
-- Dispatch with the role name in the task, and keep the **read-only framing** in the dispatch text as belt-and-braces: *"Read-only review: report findings, change nothing. Fixing is the producing role's job."*
 - Pass the five-part dispatch contract (§5.1) exactly as for a producer.
-- **Read the child's final line**: `REVIEWER-<ROLE>-DONE <BLOCKER>/<MAJOR>/<MINOR>`, or `REVIEWER-<ROLE>-FAIL <reason>`. The `subagent_reviewer` persona already instructs the child to emit it, so the contract only needs to say that this line is what you recognise. A missing marker means the review did not complete — re-dispatch, do not treat it as a pass.
+- **Read the child's final line**: `REVIEWER-<ROLE>-DONE <BLOCKER>/<MAJOR>/<MINOR>`, or `REVIEWER-<ROLE>-FAIL <reason>`. A missing marker means the review did not complete — re-dispatch, do not treat it as a pass.
+- **Verify nothing changed.** Because read-only is a convention here, the orchestrator is the control: after the reviewers return, confirm the diff contains no edit to the artifacts they were asked to review (`git status`, and `git diff` against the pre-review commit). A reviewer that silently "fixed" something is a finding, not a convenience.
 
 ### 5.4 Reviewer checklists
 
@@ -353,6 +358,17 @@ What you still do, every time:
 - `verifier` (Gate#2 only, fresh context) — plan against reality, unit by unit; run the full verification command itself and record the real numbers; hygiene grep (TODO/FIXME/HACK, hardcoded secret patterns); **check unexpected files twice** — `git status` for untracked *and* `git ls-files` for tracked junk (checking only `status` misses files already committed; this is a field lesson); independently reproduce at least 3 acceptance criteria; independently confirm or refute every claim a previous review made.
 
 Each finding must **cite evidence** (file + section/line). An unsupported judgement is labelled "unverified". Each reviewer's last line is `REVIEWER-<ROLE>-DONE <BLOCKER>/<MAJOR>/<MINOR>`; the verifier's is `VERIFIER-DONE <passed>/<planned> <exception list>`.
+
+### 5.5 Per-role models: dispatch through `aidlc_dispatch_role`
+
+A deployment can pin a **model** to each role (`config.roles.<role> = {provider, model}`): a cheap fast model for `qa`/`pm` scaffolding, a strong one for `verifier` and `reviewer-architect`, where a weak model is most expensive. **The plain `subagent` tool ignores that configuration** — it always runs the child on this session's route. The tool that applies a pin is **`aidlc_dispatch_role({role, prompt, description?, cwd?})`**.
+
+- **Prefer it for every role dispatch when it is in your tool catalog.** It resolves the pin and names the route it used in its result ("pinned by config.roles.verifier" or "inherited (the session route)"), so you can tell a real pin from a default one. A role with no pin behaves exactly like `subagent`.
+- **The child is a fresh agent with no view of this conversation**, so §5.1's five-part contract must be inside `prompt` — the same text you would send to `subagent`. The result returns a child id; the child reports with `send_message` and a completion notice arrives when it finishes.
+- **If the tool refuses, do not work around it.** It refuses — never silently un-pins — when the pinned provider is unregistered, when the model does not resolve, when this harness's `spawn` provider cannot take a child route, or when there is no `subagents` service. A refusal means the pin cannot be honoured; report it and either fix the pin or clear it, but never present an inherited-route run as a pinned one.
+- **If `aidlc_dispatch_role` is not in your catalog at all, per-role pinning is unavailable on this harness.** Dispatch through the ordinary delegation tool and tell the human that every role ran on the session's model: the configuration still parses, and nothing about it takes effect.
+- **The four reviewer roles are decided by §5.3, not by this section.** `aidlc_dispatch_role` is an ordinary delegation path: it applies a model route and does **not** restrict the child's tools. Use whichever mechanism your deployment's read-only reviewer path names, and if a model pin cannot be applied through that mechanism, say so — a cheaper reviewer model is never worth trading away the read-only guarantee.
+- **Check what a role actually resolves to with `/aidlc-doctor`**: it lists all ten roles, the route each one resolves to, and whether a pin can be applied here at all. A half-filled pin (`provider` without `model`) is reported there as a mispointing, because the harness selects a route as a provider+model pair.
 
 
 

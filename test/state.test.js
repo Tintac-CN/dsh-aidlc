@@ -222,7 +222,7 @@ test('routeEcho is three-state and never branches on the value elsewhere', () =>
 
 test('activeIntentSummary stays useful when state.json is corrupt', () => {
   assert.equal(activeIntentSummary(null), null)
-  assert.match(activeIntentSummary({ slug: 'x', state: null }), /无法解析/)
+  assert.match(activeIntentSummary({ slug: 'x', state: null }), /cannot be parsed/)
   const line = activeIntentSummary({
     slug: 'x',
     state: { phase: 'construction', gates: { gate1: 'approved' }, tddLock: true, tddLockOverride: { at: 'a' }, unitStatus: { U1: 'done', U2: 'todo' }, route: 'express' },

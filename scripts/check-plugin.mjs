@@ -200,23 +200,62 @@ try {
   } else {
     ok('cordis.patch.yml is a top-level array')
   }
-  for (const row of ['id: aidlc', 'name: dsh-aidlc', 'toolName: subagent_reviewer', 'toolFilter:', 'allow:']) {
-    if (!lines.some((l) => l.includes(row))) fail(`cordis.patch.yml is missing "${row}"`)
+  // Match on STRUCTURE, not on a bare substring. An earlier version looked for
+  // `toolName: subagent_reviewer` anywhere in the file, which a comment
+  // satisfied — so it certified the row's presence while the row was already
+  // gone. A check that a comment can pass is not a check.
+  const rowLine = (id) => lines.findIndex((l) => new RegExp(`^\\s*-\\s*id:\\s*${id}\\s*$`).test(l))
+  for (const id of ['aidlc', 'preset-aidlc']) {
+    if (rowLine(id) === -1) fail(`cordis.patch.yml has no row with id "${id}"`)
   }
-  if (!lines.some((l) => l.includes('toolFilter:'))) {
-    /* already reported above */
-  } else {
-    // The reviewer filter must be an ALLOW list (fail-closed). A deny list is
-    // fail-open: any write-capable tool added later would leak into reviewers.
-    const filterIdx = lines.findIndex((l) => l.includes('toolFilter:'))
-    const tail = lines.slice(filterIdx, filterIdx + 12).join('\n')
-    if (!/allow:/.test(tail)) fail('reviewer toolFilter does not use an allow list (a deny list is fail-open)')
-    else ok('reviewer toolFilter uses a fail-closed allow list')
-    for (const forbidden of ['write', 'edit', 'pwsh', 'bash']) {
-      const m = new RegExp(`^\\s*-\\s*${forbidden}\\s*$`, 'm')
-      if (m.test(tail)) fail(`reviewer toolFilter allow-list names the write-capable tool "${forbidden}"`)
+  if (!lines.some((l) => l.includes('name: dsh-aidlc'))) fail('cordis.patch.yml is missing "name: dsh-aidlc"')
+  if (rowLine('aidlc-reviewer') !== -1) {
+    fail(
+      'cordis.patch.yml still inserts a second dsh-tool-subagent row (id "aidlc-reviewer"). ' +
+        'On v0.2.1 that mounts the delegation tool at the root scope, where it has no owning agent and ' +
+        'interferes with the preset-provided subagent tools. Reviewer roles use the ordinary `subagent` tool.',
+    )
+  }
+
+  // ── v0.2.1 REMOVED FIELDS ────────────────────────────────────────────────
+  // `dsh-tool-subagent` deleted `persona` and `toolFilter`, and it now THROWS
+  // when either is present:
+  //   'tool-subagent: <field> is no longer supported; configure persona and
+  //    tool plugins in an Agent Preset and select it with agentPreset'
+  // (dsh-tool-subagent/lib/index.js:355 in the shipping build.)
+  //
+  // A row carrying one of them therefore does not mount, and nothing about the
+  // rest of the plugin fails — the reviewer tool simply never appears. This
+  // check exists because the previous version of this script ASSERTED those
+  // fields were present, so it actively certified a broken row: the failure it
+  // was written to catch (a silently missing read-only guarantee) was the one
+  // it guaranteed. Asserting their ABSENCE is what turns it into a regression
+  // guard, since a reintroduction is now a hard failure rather than a mount
+  // error nobody reads.
+  const REMOVED_IN_V021 = ['persona', 'toolFilter']
+  for (const field of REMOVED_IN_V021) {
+    const hit = lines.findIndex((l) => new RegExp(`^\\s+${field}:`).test(l))
+    if (hit !== -1) {
+      fail(
+        `cordis.patch.yml line ${hit + 1} sets "${field}", which dsh-tool-subagent removed in v0.2.1 — ` +
+          'the row will THROW at apply and never mount. Only `agentPreset` can scope a child now.',
+      )
     }
   }
+  if (!REMOVED_IN_V021.some((f) => lines.some((l) => new RegExp(`^\\s+${f}:`).test(l)))) {
+    ok('the reviewer row carries no v0.2.1-removed fields (persona / toolFilter)')
+  }
+
+  // The agent preset is what replaces them: it must publish its own display copy,
+  // because the harness never translates a declaration's metadata.
+  for (const [label, re] of [
+    ['the preset declaration', /name:\s*'@deepseek-ai\/dsh-agent-preset'/],
+    ['a preset display name', /^\s+name:\s*"AIDLC/m],
+    ['a preset description', /^\s+description:/m],
+  ]) {
+    if (!re.test(text)) fail(`cordis.patch.yml is missing ${label}`)
+  }
+  if (!/plugins:/.test(text)) fail('the preset declaration has no `plugins` child list, so it declares nothing')
 } catch (error) {
   fail(`cordis.patch.yml check threw: ${error.message}`)
 }

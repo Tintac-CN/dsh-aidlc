@@ -27,7 +27,7 @@ test('Rule 1: plan.md and units/** are denied before gate1, allowed after', (t) 
   for (const file of ['docs/aidlc/demo/plan.md', 'docs/aidlc/demo/units/U1.md', 'docs/aidlc/demo/units/sub/deep.md']) {
     const denied = gw(root, file, 'x')
     assert.equal(denied.kind, 'deny', file)
-    assert.match(denied.reason, /Gate#1 未通过/)
+    assert.match(denied.reason, /Gate#1 has not passed/)
   }
   // with gate1 approved the same writes pass
   intent(root, 'demo', { stateOverrides: { phase: 'construction', gates: { gate1: 'approved' } } })
@@ -86,7 +86,7 @@ test('Rule 6: Edit is denied for state.json and decisions.md, allowed elsewhere'
   for (const file of ['docs/aidlc/demo/state.json', 'docs/aidlc/demo/decisions.md']) {
     const denied = gw(root, file, undefined, { isEdit: true })
     assert.equal(denied.kind, 'deny', file)
-    assert.match(denied.reason, /禁止用 Edit 修改/)
+    assert.match(denied.reason, /must not be modified with Edit/)
   }
   assert.ok(ok(gw(root, 'docs/aidlc/demo/plan.md', undefined, { isEdit: true })), 'an Edit of another artifact is a normal write')
 })
@@ -97,7 +97,7 @@ test('Rule 6b: a Write with no content cannot rewrite an existing audited file',
   for (const file of ['docs/aidlc/demo/state.json', 'docs/aidlc/demo/decisions.md']) {
     const denied = gw(root, file, undefined)
     assert.equal(denied.kind, 'deny', file)
-    assert.match(denied.reason, /没有携带完整文件内容/)
+    assert.match(denied.reason, /did not carry the whole file content/)
   }
   // creation still works, because there is nothing to lose
   assert.ok(ok(gw(root, 'docs/aidlc/other/state.json', undefined)))
@@ -110,7 +110,7 @@ test('Rule 4a: an overwrite may not drop a history entry', (t) => {
   intent(root, 'demo')
   const denied = gw(root, 'docs/aidlc/demo/state.json', json(state({ history: [] })))
   assert.equal(denied.kind, 'deny')
-  assert.match(denied.reason, /乐观锁/)
+  assert.match(denied.reason, /optimistic lock/)
   // reordered but complete history passes
   const kept = state({ history: [{ event: 'created', at: '2026-10-19T00:00:00.000Z' }] })
   assert.ok(ok(gw(root, 'docs/aidlc/demo/state.json', json(kept))))
@@ -128,7 +128,7 @@ test('Rule 4b: an overwrite may not drop or null a preserve-key, but may change 
   ]) {
     const denied = gw(root, 'docs/aidlc/demo/state.json', json(state(next)))
     assert.equal(denied.kind, 'deny', label)
-    assert.match(denied.reason, /键保留校验/)
+    assert.match(denied.reason, /preserve-keys check/)
   }
   assert.ok(ok(gw(root, 'docs/aidlc/demo/state.json', json(state({ route: 'express', testBaseline: { total: 5 }, unitStatus: { U1: 'pending' }, tddLock: false })))), 'value changes pass')
 })
@@ -149,7 +149,7 @@ test('Rule 5: decisions.md may only be extended verbatim', (t) => {
   for (const [label, text] of [['reordered', 'B\nA\n'], ['truncated', 'A\n'], ['mutated', 'A\nB2\n'], ['trailing space added', 'A\nB \n']]) {
     const denied = gw(root, 'docs/aidlc/demo/decisions.md', text)
     assert.equal(denied.kind, 'deny', label)
-    assert.match(denied.reason, /只追加/)
+    assert.match(denied.reason, /append-only/)
   }
   // creation is exempt
   assert.ok(ok(gw(root, 'docs/aidlc/newintent/decisions.md', 'fresh\n')))
@@ -163,13 +163,13 @@ test('corrupt state.json fails closed for every path except its own repair', (t)
   write(join(dir, 'state.json'), '{ this is not json')
   const denied = gw(root, 'docs/aidlc/broken/prd.md', 'x')
   assert.equal(denied.kind, 'deny')
-  assert.match(denied.reason, /存在但无法解析/)
+  assert.match(denied.reason, /cannot be parsed/)
   assert.equal(gw(root, 'docs/aidlc/broken/state.json', undefined, { isEdit: true }).kind, 'deny')
   assert.ok(ok(gw(root, 'docs/aidlc/broken/state.json', json({ slug: 'broken', phase: 'inception', gates: { gate1: 'pending' }, history: [] }))), 'the repair Write is allowed')
   // ...but a repair that claims an approval still needs the receipt
   const claimed = gw(root, 'docs/aidlc/broken/state.json', json({ slug: 'broken', phase: 'gate1', gates: { gate1: 'approved' }, history: [] }))
   assert.equal(claimed.kind, 'deny')
-  assert.match(claimed.reason, /缺少有效的人类审批回执/)
+  assert.match(claimed.reason, /no live human approval receipt/)
   // an unrelated intent is unaffected by another intent's corruption
   intent(root, 'healthy', { stateOverrides: { gates: { gate1: 'approved' } } })
   assert.ok(ok(gw(root, 'docs/aidlc/healthy/prd.md', 'x')))
@@ -182,7 +182,7 @@ test('a brand-new intent: plain creation passes, a first write claiming gate1 do
   assert.ok(ok(gw(root, 'docs/aidlc/fresh/state.json', json({ slug: 'fresh', phase: 'inception', gates: { gate1: 'pending' }, history: [] }))))
   const claimed = gw(root, 'docs/aidlc/fresh/state.json', json({ slug: 'fresh', phase: 'gate1', gates: { gate1: 'approved' }, history: [] }))
   assert.equal(claimed.kind, 'deny', 'bypass-a: deleting state.json must not dodge the receipt rule')
-  assert.match(claimed.reason, /缺少有效的人类审批回执/)
+  assert.match(claimed.reason, /no live human approval receipt/)
   const phased = gw(root, 'docs/aidlc/fresh/state.json', json({ slug: 'fresh', phase: 'gate1', gates: { gate1: 'pending' }, history: [] }))
   assert.equal(phased.kind, 'deny', 'the phase→gate1 transition is F4-checked even on a first write')
   assert.match(phased.reason, /F4/)
@@ -196,7 +196,7 @@ test('D12 (port deviation): a stateless intent cannot receive Construction artif
   for (const file of ['docs/aidlc/ghost/plan.md', 'docs/aidlc/ghost/units/U1.md']) {
     const denied = gw(root, file, 'x')
     assert.equal(denied.kind, 'deny', file)
-    assert.match(denied.reason, /没有可解析的 state\.json/)
+    assert.match(denied.reason, /has no parseable state\.json/)
   }
   // ...and must NOT deadlock intent creation: these stay writable
   for (const file of [
@@ -244,7 +244,7 @@ test('absolute paths are normalised and guarded like relative ones', (t) => {
   const abs = join(root, 'docs', 'aidlc', 'demo', 'plan.md')
   const denied = gw(root, abs, 'x')
   assert.equal(denied.kind, 'deny')
-  assert.match(denied.reason, /Gate#1 未通过/)
+  assert.match(denied.reason, /Gate#1 has not passed/)
   assert.ok(ok(gw(root, join(root, 'docs', 'aidlc', 'demo', 'prd.md'), 'x')))
   const win = gw(root, 'docs\\aidlc\\demo\\plan.md', 'x')
   assert.equal(win.kind, 'deny', 'windows separators')

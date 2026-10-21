@@ -356,3 +356,14 @@ nothing happens"). The guard supports either
 config: flags are read from `config.guards`, the mode from `config.decision`). Until that one line
 lands, `acceptAuto` is false everywhere and the AUTO line is recorded without satisfying a gate —
 the behaviour is safe, just inert, and the deny message now says so explicitly.
+
+## Correction (2026-10-20): reviewer read-only is no longer mechanical
+
+The rows above describe the `toolFilter` allow-list as the current mechanism. Harness
+**v0.2.1 removed `persona` and `toolFilter` from `dsh-tool-subagent`** and throws at apply
+time when either is present, so that row cannot mount and the filter is gone. A preset cannot
+restore it (`dsh-tool-fs` registers read+write+edit from one package), so on v0.2.1 reviewer
+read-only is **instruction-carried**, the orchestrator verifies the diff is unchanged after
+review, and `cordis.patch.yml` records the regression in its row comment. What would restore
+the mechanism is a plugin-side `tools.restrict()` in the child's creation window — `restrict`
+still exists on the tool service; only the declarative field was removed.

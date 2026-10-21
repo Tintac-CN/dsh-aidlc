@@ -124,17 +124,28 @@ test('the read-only-reviewer guarantee is described with its limit, not overclai
   for (const file of candidates) {
     const text = read(file)
     if (!/subagent_reviewer/.test(text)) continue
-    assert.match(text, /tool-read-only|tool-scoped|cannot write|refuse to execute/, `${file} must describe the mechanism`)
+    assert.match(
+      text,
+      // v0.2.1 removed `toolFilter`, so the vocabulary moved from "the registry enforces
+      // it" to "it is instruction-carried". Both spellings are honest; the assertion
+      // accepts either so the *limit* below stays the load-bearing half.
+      /tool-read-only|tool-scoped|cannot write|refuse to execute|instruction-carried|convention on this harness|not a mechanism/,
+      `${file} must describe what read-only review does and does not guarantee`,
+    )
     assert.match(text, /not capability-isolated|not in a separate security domain|shares the parent/, `${file} must state the limit`)
   }
-  assert.match(read('cordis.patch.yml'), /toolFilter:/)
-  assert.match(read('cordis.patch.yml'), /allow:/)
-  // the allow-list must not contain a write path
-  const allowBlock = /allow:\s*\n((?:\s*-\s*\S+\n)+)/.exec(read('cordis.patch.yml'))
-  assert.ok(allowBlock !== null, 'the allow-list must be present')
-  for (const forbidden of ['write', 'edit', 'pwsh', 'bash', 'subagent', 'workflow']) {
-    assert.equal(new RegExp(`-\\s*${forbidden}\\b`).test(allowBlock[1]), false, `${forbidden} must not be allow-listed for reviewers`)
-  }
+  // The mechanical mechanism (`toolFilter` / `allow`) was REMOVED by harness
+  // v0.2.1, which THROWS at apply time when either field is present. The
+  // guarantee is now instruction-carried, so the honest thing for the patch to
+  // do is say so — and the dishonest thing is to leave the dead fields in (they
+  // would stop the row from mounting) or to claim the registry still enforces it.
+  // This assertion was inverted rather than deleted, so the overclaim it guards
+  // against is still guarded, in the direction that now matters.
+  const patch = read('cordis.patch.yml')
+  assert.doesNotMatch(patch, /^\s*toolFilter:/m, 'a toolFilter row would fail to mount on v0.2.1')
+  assert.doesNotMatch(patch, /^\s*persona:/m, 'a persona row would fail to mount on v0.2.1')
+  assert.match(patch, /instruction-carried|not enforced by the tool registry|INSTRUCTION-CARRIED/i, 'the patch must say the guarantee is no longer mechanical')
+  assert.match(patch, /regression/i, 'the patch must record the regression rather than dropping it quietly')
 })
 
 test('package.json advertises a test script that matches the suite layout', () => {

@@ -622,3 +622,110 @@ transport, the `escalate_at` blocking-only rule, and the
 
 A safety property that has not been attacked is not verified. When you change
 `arbiter.js`, attack it again.
+
+## 15. Pointing at a decision endpoint (Jev / Laya / OpenAI-compatible / session)
+
+`decision.model` is the only place the decision transport is configured. It is
+plugin config, so it is written in the profile's patch layer under the plugin
+row:
+
+```yaml
+- id: aidlc
+  name: dsh-aidlc
+  config:
+    decision:
+      model:
+        protocol: session        # session | systemone | chat
+```
+
+Four real deployments, in the order an operator usually meets them:
+
+**1. Session model (the default).** No endpoint, no key, no extra config.
+
+```yaml
+decision:
+  model:
+    protocol: session
+```
+
+The decision questions go to the harness's own model for this session. This is
+the default, so nothing changes until an operator sets it. **Everything else in
+`decision.model` is IGNORED under this protocol** — the wiring hands the RUNNING
+session's provider and model to the transport, so a `model:` written here is not
+the model in use. `/aidlc-doctor` says so rather than echoing it back.
+
+**2. System One / Jev (the reference decision model).**
+
+```yaml
+decision:
+  model:
+    protocol: systemone
+    baseURL: https://api.siliconflow.cn/v1
+    model: Kev-4b
+    apiKeyEnv: JEV_API_KEY      # or apiKey / apiKeyFile
+    timeoutMs: 24000
+    maxTokens: 1024
+    thinking: 'off'
+```
+
+`baseURL` and `model` are optional: an empty `baseURL` resolves to
+`https://api.siliconflow.cn/v1` and an empty `model` to `Kev-4b` (the values the
+shipped System One implementation uses), and `/aidlc-doctor` labels each value
+"the protocol default" when that happens. A non-loopback endpoint **needs a
+credential** — `decision.model.apiKey`, `apiKeyEnv`, or `apiKeyFile` — and the
+config validator refuses to arm the layer without one. `thinking: 'off'` asks for
+verdicts without request-side reasoning traces; `maxLen` bounds the state payload
+(0 = inherit).
+
+**3. A self-hosted Laya / llama.cpp on loopback (no key).**
+
+```yaml
+decision:
+  model:
+    protocol: systemone
+    baseURL: http://127.0.0.1:8080/v1
+    model: qwen2.5-7b-instruct
+    timeoutMs: 60000          # local models are slow; the default 24s may be short
+    maxTokens: 512
+```
+
+A loopback base URL (`127.0.0.0/8`, `localhost`, `::1`) may run unauthenticated,
+which is the one case the validator allows without a key. It is still a decision
+maker: give it the same scrutiny as a remote one, and read `/aidlc-doctor`'s
+verdict after `/aidlc-doctor --probe` rather than assuming a small local model
+clears the confidence bars.
+
+**4. An OpenAI-compatible chat endpoint.**
+
+```yaml
+decision:
+  model:
+    protocol: chat
+    baseURL: https://api.example.com/v1
+    model: gpt-4o-mini
+    apiKeyEnv: DECISION_API_KEY
+```
+
+`chat` has **no defaults**: an empty `baseURL` or `model` is a misconfiguration,
+and `/aidlc-doctor` reports it as a FAIL rather than letting the first real
+question discover it. The transport asks for the same strict JSON verdict and
+parses it defensively; anything unparseable is discarded and the human is asked.
+
+### Per-class model overrides (`decision.models`): NOT implemented
+
+Deliberately out of scope, and stated here so nobody configures it and wonders:
+`decision.models` (a per-decision-class route, e.g. a stronger model for
+`security.exception`) **does not exist**. The transport is chosen once, in
+`buildConsultModel` in the plugin entry point, from `decision.model`; adding a
+per-class map means threading the class into that seam and a second resolution
+path beside the one the resolver already owns — enough surface that it is a
+separate change, not a footnote. If a deployment needs it, the honest options
+today are one endpoint with a stronger model, or `gate.approval: advisory` so a
+human answers the classes that matter.
+
+### Checking a configuration
+
+`/aidlc-doctor` reports the resolved endpoint (protocol, base URL and where it
+came from, model and where it came from, and WHICH config field supplies the
+credential — never the credential itself), plus every role's resolved model
+route. `--probe` spends one real request to prove the transport answers.

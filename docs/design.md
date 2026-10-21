@@ -557,3 +557,21 @@ configuration can ever legitimately produce an auto-satisfied gate") no longer d
 configuration surface: an operator **can** now arm the gate, and an `AUTO-APPROVED` receipt for it is
 their explicit, warned choice. What still makes forgery impossible is unchanged and is §7.7's real
 point: the machine never writes `GATE-APPROVED`. The lead owns any rewording of §7.7.
+
+## Correction (2026-10-20): the reviewer `toolFilter` no longer exists
+
+Everything above in §7.8 describes the mechanism as it worked on harness **0.1.5**: a
+`toolFilter` allow-list on the `subagent_reviewer` row, applied as a scoped `tools.restrict()`
+so reviewer write tools were *absent from the prompt and refused to execute*.
+
+**Harness v0.2.1 removed `persona` and `toolFilter` from `dsh-tool-subagent`, and it now THROWS
+at apply time when either is present** (`dsh-tool-subagent/lib/index.js:355` in the shipping
+build). A row carrying them does not mount, so the guarantee is gone rather than degraded.
+A preset cannot restore it either: `dsh-tool-fs` still registers `read`, `write` and `edit`
+from one package, so no row selection produces "read without write".
+
+Reviewer read-only is therefore **instruction-carried** on v0.2.1, and the orchestrator
+compensates by verifying the diff is unchanged after a review. `cordis.patch.yml` records this
+in the row comment and `npm run check` now fails if `persona` or `toolFilter` is reintroduced.
+The text above is kept as the record of what the mechanism *was*, not as a claim about what
+runs today.
